@@ -10,7 +10,7 @@ export default {
           success: true,
           discord: "https://discord.gg/cwDTVKyKJz",
           website: "https://ish.junioralive.in",
-          docs: "https://github.com/junioralive/gptoss-proxy",
+          repo: "https://github.com/junioralive/gptoss-proxy",
         }),
         { status: 200, headers: corsHeaders({ "content-type": "application/json" }) }
       );
@@ -54,7 +54,7 @@ const BASE_HEADERS = {
   "user-agent":
     "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTMLFg, silike FGeckosi) Chrome/132.0.0.0 Mobile Safari/537.36.fgsi",
   "x-selected-model": "gpt-oss-120b",
-  "x-show-reasoning": "false",
+  // NOTE: we no longer hardcode x-show-reasoning here; we set it per-request below
 };
 
 /* ----------------------- helpers ----------------------- */
@@ -64,7 +64,8 @@ function corsHeaders(extra = {}) {
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "GET,POST,OPTIONS",
     "access-control-allow-headers":
-      "content-type, x-reasoning-effort, x-gptoss-thread-id, x-gptoss-user-id, authorization",
+      // added x-show-reasoning to allow client override
+      "content-type, x-reasoning-effort, x-gptoss-thread-id, x-gptoss-user-id, x-show-reasoning, authorization",
     "access-control-expose-headers": "x-gptoss-user-id, x-gptoss-thread-id",
     ...extra,
   };
@@ -83,6 +84,16 @@ function getReasoningLevel(bodyMeta, headers) {
     bodyMeta && typeof bodyMeta === "object" ? bodyMeta.reasoning_effort : "";
   const level = (hdr || meta || "medium").toLowerCase();
   return ["none", "low", "medium", "high"].includes(level) ? level : "medium";
+}
+
+// NEW: show reasoning (default = true). Clients can override via header or metadata.
+function getShowReasoning(bodyMeta, headers) {
+  const hdr = (headers.get("X-Show-Reasoning") || headers.get("x-show-reasoning") || "").toLowerCase();
+  if (hdr === "true" || hdr === "1" || hdr === "yes") return true;
+  if (hdr === "false" || hdr === "0" || hdr === "no") return false;
+  const meta = bodyMeta && typeof bodyMeta === "object" ? bodyMeta.show_reasoning : undefined;
+  if (typeof meta === "boolean") return meta;
+  return true; // default: ON
 }
 
 function lastUserText(messages) {
@@ -126,6 +137,13 @@ function cryptoRandomId(n) {
   return out;
 }
 
+// filters trivial recaps (e.g., "Done")
+function isTrivialReasoning(text) {
+  if (!text) return true;
+  const t = String(text).trim().toLowerCase();
+  return t === "" || t === "done";
+}
+
 /* ----------------------- /v1/models ----------------------- */
 
 function listModels() {
@@ -154,7 +172,6 @@ async function openAICompatible(req) {
   const messages = (body && Array.isArray(body.messages) && body.messages) || [];
   const metadata = (body && typeof body.metadata === "object" && body.metadata) || {};
 
-  // model check (OpenAI would 404 unknown models; we 400 to be explicit)
   if (!SUPPORTED_MODELS.has(model)) {
     return new Response(
       JSON.stringify({
@@ -166,6 +183,7 @@ async function openAICompatible(req) {
 
   // options
   const reasoning = getReasoningLevel(metadata, req.headers);
+  const showReasoning = getShowReasoning(metadata, req.headers); // DEFAULT TRUE
   const threadId = req.headers.get("x-gptoss-thread-id") || metadata.gptoss_thread_id || null;
   const userId = req.headers.get("x-gptoss-user-id") || metadata.gptoss_user_id || null;
 
@@ -184,7 +202,12 @@ async function openAICompatible(req) {
     },
   });
 
-  const headers = { ...BASE_HEADERS, "x-selected-model": model, "x-reasoning-effort": reasoning };
+  const headers = {
+    ...BASE_HEADERS,
+    "x-selected-model": model,
+    "x-reasoning-effort": reasoning,
+    "x-show-reasoning": showReasoning ? "true" : "false",
+  };
   if (userId) headers["cookie"] = `user_id=${userId}`;
 
   const upstream = await fetch(GPT_OSS_URL, {
@@ -204,7 +227,6 @@ async function openAICompatible(req) {
   const openaiId = `chatcmpl_${cryptoRandomId(24)}`;
 
   if (!stream) {
-    // aggregate to single JSON
     const aggregated = await collectFromSSE(upstream.body);
     const resp = {
       id: openaiId,
@@ -283,8 +305,8 @@ async function openAICompatible(req) {
               evt.update.type === "cot.entry_added"
             ) {
               const entry = evt.update.entry || {};
-              const rtext = entry.content || entry.summary || "";
-              if (rtext) {
+              const rtext = (entry.content || entry.summary || "").trim();
+              if (!isTrivialReasoning(rtext)) {
                 const chunk = {
                   id: openaiId,
                   object: "chat.completion.chunk",
@@ -394,8 +416,8 @@ async function collectFromSSE(body) {
         evt.update.type === "cot.entry_added"
       ) {
         const entry = evt.update.entry || {};
-        const rtext = entry.content || entry.summary || "";
-        if (rtext) reasoningOut.push(rtext);
+        const rtext = (entry.content || entry.summary || "").trim();
+        if (!isTrivialReasoning(rtext)) reasoningOut.push(rtext);
         continue;
       }
 
