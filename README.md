@@ -1,4 +1,6 @@
-# GPTOSS-Proxy OpenAI-Compatible (Cloudflare Workers)
+# GPTOSS-Proxy OpenAI-Compatible
+
+> ## Leave a ⭐ if this helped you
 
 A tiny Cloudflare Worker that exposes a **single OpenAI-compatible endpoint**:
 
@@ -9,6 +11,8 @@ A tiny Cloudflare Worker that exposes a **single OpenAI-compatible endpoint**:
 ## 🚀 One-click deploy
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/junioralive/gptoss-proxy)
+
+NOTE: You can [Join our Discord](https://discord.gg/cwDTVKyKJz) server if you face issues deploying.
 
 ## ✨ Features
 
@@ -175,10 +179,18 @@ for await (const chunk of stream) {
 }
 ```
 
+## ⚠️ Disclaimer
+
+This script is provided **as a proof of concept**.
+It is **not intended to cause harm or be misused**.
+
+If you encounter any issues or have concerns, please contact:
+📧 [support@junioralive.in](mailto:support@junioralive.in)
+💬 [Join our Discord](https://discord.gg/cwDTVKyKJz)
+
 ## 🔧 Notes & tips
 
 * **Models**: choose `gpt-oss-20b` for speed; `gpt-oss-120b` for quality.
 * **Reasoning effort**: set via header or `metadata.reasoning_effort` (default `medium`).
 * **Threads / Users**: pass `X-GPTOSS-Thread-Id` + `X-GPTOSS-User-Id` (or `metadata.gptoss_*`) to keep conversation history.
 * **CORS**: enabled by default. If you add auth, include `authorization` in `access-control-allow-headers`.
-
